@@ -320,6 +320,23 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	When("the DisablePeriodicReconciliation is set", func() {
+		It("does not set a requeue time", func() {
+			setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+			setReconcileConfigureWorkflowToReturnFinished()
+
+			resReq.SetLabels(map[string]string{
+				resourceutil.DisablePeriodicReconciliationLabel: "true",
+			})
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
 	Describe("Resource Request Status", func() {
 		BeforeEach(func() {
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)

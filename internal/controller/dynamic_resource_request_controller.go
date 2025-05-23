@@ -166,7 +166,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(rr, logger)
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -174,7 +174,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
 			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
 		}
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(rr, logger)
 	}
 
 	return ctrl.Result{}, nil
@@ -308,9 +308,19 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
 }
 
-func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) nextReconciliation(rr *unstructured.Unstructured, logger logr.Logger) (ctrl.Result, error) {
+	if r.disablePeriodicReconciliationLabelSet(rr) {
+		logger.Info("Periodic reconciliation disabled not scheduling next reconciliation")
+		return ctrl.Result{}, nil
+	}
+
 	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
+}
+
+func (r *DynamicResourceRequestController) disablePeriodicReconciliationLabelSet(rr *unstructured.Unstructured) bool {
+	resourceLabels := rr.GetLabels()
+	return resourceLabels[resourceutil.DisablePeriodicReconciliationLabel] == "true"
 }
 
 func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {
