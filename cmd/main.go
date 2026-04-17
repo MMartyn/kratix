@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	_ "github.com/cloudevents/sdk-go/v2"
 	"github.com/syntasso/kratix/internal/ptr"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
