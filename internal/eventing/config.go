@@ -1,11 +1,19 @@
 package eventing
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	cloudevents "github.com/cloudevents/sdk-go/v2"
+	ceclient "github.com/cloudevents/sdk-go/v2/client"
 	cecontext "github.com/cloudevents/sdk-go/v2/context"
+	"github.com/cloudevents/sdk-go/v2/protocol"
+	cehttp "github.com/cloudevents/sdk-go/v2/protocol/http"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+var configLog = ctrl.Log.WithName("eventing").WithName("config")
 
 type Config struct {
 	Sink        string      `json:"sink,omitempty"`
@@ -86,4 +94,68 @@ func parseStrategy(s string) (cecontext.BackoffStrategy, error) {
 	default:
 		return "", fmt.Errorf("unknown retry strategy %q: must be one of none, constant, linear, exponential", s)
 	}
+}
+
+// NewEmitter creates the appropriate CloudEventEmitter based on config.
+// It returns a shutdown function that should be called when the emitter is no longer needed.
+func NewEmitter(cfg *Config) (CloudEventEmitter, func(context.Context), error) {
+	noopShutdown := func(context.Context) {}
+
+	if cfg == nil || cfg.Sink == "" {
+		configLog.Info("CloudEvents sink not configured; emission disabled")
+		recordEnabled(context.Background(), false)
+		return &NoopEmitter{}, noopShutdown, nil
+	}
+
+	withDefaults := cfg.withDefaults()
+
+	retryParams, err := cfg.retryParams()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	p, err := cehttp.New(cehttp.WithTarget(withDefaults.Sink))
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating CE HTTP protocol: %w", err)
+	}
+
+	ceClient, err := ceclient.New(p, ceclient.WithUUIDs(), ceclient.WithTimeNow())
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating CE client: %w", err)
+	}
+
+	retrySender := &retrySenderWrapper{
+		client:      ceClient,
+		retryParams: retryParams,
+	}
+
+	pub := NewAsyncPublisher(retrySender, withDefaults.Source, withDefaults.QueueSize, withDefaults.WorkerCount)
+	pub.Start(context.Background())
+
+	configLog.Info("CloudEvents emission enabled",
+		"sink", withDefaults.Sink,
+		"source", withDefaults.Source,
+		"queueSize", withDefaults.QueueSize,
+		"workerCount", withDefaults.WorkerCount,
+		"retryStrategy", withDefaults.Retry.Strategy,
+		"retryMaxTries", withDefaults.Retry.MaxTries,
+		"retryPeriod", withDefaults.Retry.Period,
+	)
+	recordEnabled(context.Background(), true)
+
+	shutdown := func(ctx context.Context) {
+		pub.Shutdown(ctx)
+	}
+	return pub, shutdown, nil
+}
+
+// retrySenderWrapper decorates a CE client with retry params in the send context.
+type retrySenderWrapper struct {
+	client      ceclient.Client
+	retryParams *cecontext.RetryParams
+}
+
+func (w *retrySenderWrapper) Send(ctx context.Context, e cloudevents.Event) protocol.Result {
+	ctx = cecontext.WithRetryParams(ctx, w.retryParams)
+	return w.client.Send(ctx, e)
 }
