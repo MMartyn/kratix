@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,6 +44,7 @@ type HealthRecordReconciler struct {
 	Scheme        *runtime.Scheme
 	Log           logr.Logger
 	EventRecorder record.EventRecorder
+	CloudEvents   eventing.CloudEventEmitter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords,verbs=get;list;watch;create;update;patch;delete

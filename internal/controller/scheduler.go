@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,7 @@ type Scheduler struct {
 	Client        client.Client
 	Log           logr.Logger
 	EventRecorder record.EventRecorder
+	CloudEvents   eventing.CloudEventEmitter
 }
 
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via

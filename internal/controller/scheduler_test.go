@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
@@ -64,6 +65,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			Client:        fakeK8sClient,
 			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
 			EventRecorder: schedulerRecorder,
+			CloudEvents:   &eventing.NoopEmitter{},
 		}
 	})
 

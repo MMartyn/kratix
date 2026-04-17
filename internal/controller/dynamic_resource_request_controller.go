@@ -31,6 +31,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -79,6 +80,7 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
+	CloudEvents                 eventing.CloudEventEmitter
 	PromiseUpgrade              bool
 }
 

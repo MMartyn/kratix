@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
@@ -55,6 +56,7 @@ type WorkReconciler struct {
 	Log           logr.Logger
 	Scheduler     WorkScheduler
 	EventRecorder record.EventRecorder
+	CloudEvents   eventing.CloudEventEmitter
 }
 
 //counterfeiter:generate . WorkScheduler

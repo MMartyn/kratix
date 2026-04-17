@@ -12,6 +12,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/eventing"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
@@ -81,6 +82,7 @@ var _ = Describe("PromiseController", func() {
 			Manager:                m,
 			ReconciliationInterval: controller.DefaultReconciliationInterval,
 			EventRecorder:          eventRecorder,
+			CloudEvents:            &eventing.NoopEmitter{},
 		}
 	})
 

@@ -27,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,6 +61,7 @@ var _ = Describe("DestinationReconciler", func() {
 			Client:          fakeK8sClient,
 			EventRecorder:   eventRecorder,
 			Log:             ctrl.Log.WithName("controllers").WithName("Destination"),
+			CloudEvents:     &eventing.NoopEmitter{},
 			RepositoryCache: repositoryCache,
 		}
 

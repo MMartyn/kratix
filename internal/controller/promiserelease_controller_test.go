@@ -9,6 +9,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/api/v1alpha1/v1alpha1fakes"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/eventing"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,6 +40,7 @@ var _ = Describe("PromiseReleaseController", func() {
 			Scheme:         scheme.Scheme,
 			PromiseFetcher: fakeFetcher,
 			Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
+			CloudEvents:    &eventing.NoopEmitter{},
 		}
 
 		promiseRelease = v1alpha1.PromiseRelease{
@@ -301,6 +303,7 @@ var _ = Describe("PromiseReleaseController", func() {
 							PromiseFetcher: fakeFetcher,
 							Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
 							EventRecorder:  eventRecorder,
+							CloudEvents:    &eventing.NoopEmitter{},
 						}
 
 						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
@@ -486,6 +489,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				PromiseFetcher: fakeFetcher,
 				Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
 				EventRecorder:  eventRecorder,
+				CloudEvents:    &eventing.NoopEmitter{},
 			}
 		})
 

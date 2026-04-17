@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
@@ -64,6 +65,7 @@ type WorkPlacementReconciler struct {
 	Log           logr.Logger
 	VersionCache  map[string]string
 	EventRecorder record.EventRecorder
+	CloudEvents   eventing.CloudEventEmitter
 
 	RepositoryCache RepositoryCache
 }

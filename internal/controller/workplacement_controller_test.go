@@ -23,6 +23,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -79,6 +80,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			Log:             ctrl.Log.WithName("controllers").WithName("Workplacement"),
 			VersionCache:    make(map[string]string),
 			EventRecorder:   workplacementRecorder,
+			CloudEvents:     &eventing.NoopEmitter{},
 			RepositoryCache: repositoryCache,
 		}
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -40,6 +41,7 @@ type GitStateStoreReconciler struct {
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
 	EventRecorder   record.EventRecorder
+	CloudEvents     eventing.CloudEventEmitter
 	RepositoryCache RepositoryCache
 }
 

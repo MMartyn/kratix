@@ -35,6 +35,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
@@ -54,6 +55,7 @@ type PromiseReleaseReconciler struct {
 	Log            logr.Logger
 	PromiseFetcher v1alpha1.PromiseFetcher
 	EventRecorder  record.EventRecorder
+	CloudEvents    eventing.CloudEventEmitter
 }
 
 const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"

@@ -42,7 +42,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	_ "github.com/cloudevents/sdk-go/v2"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/ptr"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -82,6 +82,7 @@ type KratixConfig struct {
 	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
 	Logging                  *LoggingConfig        `json:"logging,omitempty"`
 	FeatureFlags             *FeatureFlags         `json:"featureFlags,omitempty"`
+	Eventing                 *EventingConfig       `json:"eventing,omitempty"`
 }
 
 type FeatureFlags struct {
@@ -111,6 +112,10 @@ type LeaderElectionConfig struct {
 	LeaseDuration *metav1.Duration `json:"leaseDuration,omitempty"`
 	RenewDeadline *metav1.Duration `json:"renewDeadline,omitempty"`
 	RetryPeriod   *metav1.Duration `json:"retryPeriod,omitempty"`
+}
+
+type EventingConfig struct {
+	CloudEvents *eventing.Config `json:"cloudEvents,omitempty"`
 }
 
 var metricsAddr string
@@ -268,10 +273,22 @@ func main() {
 
 	repositoryCache := controller.NewRepositoryCache()
 
+	var cloudEventsConfig *eventing.Config
+	if kratixConfig != nil && kratixConfig.Eventing != nil {
+		cloudEventsConfig = kratixConfig.Eventing.CloudEvents
+	}
+	cloudEventEmitter, cloudEventsShutdown, err := eventing.NewEmitter(cloudEventsConfig)
+	if err != nil {
+		setupLog.Error(err, "unable to create CloudEvents emitter")
+		os.Exit(1)
+	}
+	defer cloudEventsShutdown(ctx)
+
 	scheduler := controller.Scheduler{
 		Client:        mgr.GetClient(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
 		EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
+		CloudEvents:   cloudEventEmitter,
 	}
 
 	if err = (&controller.PromiseReconciler{
@@ -283,6 +300,7 @@ func main() {
 		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
+		CloudEvents:            cloudEventEmitter,
 		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
@@ -303,6 +321,7 @@ func main() {
 		Log:           ctrl.Log.WithName("controllers").WithName("Work"),
 		Scheduler:     &scheduler,
 		EventRecorder: mgr.GetEventRecorderFor("WorkController"),
+		CloudEvents:   cloudEventEmitter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
 		os.Exit(1)
@@ -313,6 +332,7 @@ func main() {
 		Scheduler:       &scheduler,
 		Log:             ctrl.Log.WithName("controllers").WithName("DestinationController"),
 		EventRecorder:   mgr.GetEventRecorderFor("DestinationController"),
+		CloudEvents:     cloudEventEmitter,
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Destination")
@@ -329,6 +349,7 @@ func main() {
 		Scheme:         mgr.GetScheme(),
 		PromiseFetcher: &fetchers.URLFetcher{},
 		EventRecorder:  mgr.GetEventRecorderFor("PromiseReleaseController"),
+		CloudEvents:    cloudEventEmitter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PromiseRelease")
 		os.Exit(1)
@@ -342,6 +363,7 @@ func main() {
 		Scheme:        mgr.GetScheme(),
 		Log:           ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
 		EventRecorder: mgr.GetEventRecorderFor("HealthRecordController"),
+		CloudEvents:   cloudEventEmitter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 		os.Exit(1)
@@ -355,6 +377,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
 		EventRecorder:   mgr.GetEventRecorderFor("BucketStateStoreController"),
+		CloudEvents:     cloudEventEmitter,
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
@@ -366,6 +389,7 @@ func main() {
 		Scheme:          mgr.GetScheme(),
 		Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
 		EventRecorder:   mgr.GetEventRecorderFor("GitStateStoreController"),
+		CloudEvents:     cloudEventEmitter,
 		RepositoryCache: repositoryCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
@@ -377,6 +401,7 @@ func main() {
 		VersionCache:    make(map[string]string),
 		RepositoryCache: repositoryCache,
 		EventRecorder:   mgr.GetEventRecorderFor("WorkPlacementController"),
+		CloudEvents:     cloudEventEmitter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)

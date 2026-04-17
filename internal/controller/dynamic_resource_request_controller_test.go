@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/objectutil"
 	batchv1 "k8s.io/api/batch/v1"
@@ -65,6 +66,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			UID:                         "1234abcd",
 			ReconciliationInterval:      controller.DefaultReconciliationInterval,
 			EventRecorder:               eventRecorder,
+			CloudEvents:                 &eventing.NoopEmitter{},
 		}
 
 		resReq = createResourceRequest(resourceRequestPath)

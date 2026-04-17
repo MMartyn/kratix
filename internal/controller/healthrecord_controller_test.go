@@ -4,6 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/eventing"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -73,6 +74,7 @@ var _ = Describe("HealthRecordController", func() {
 			Scheme:        scheme.Scheme,
 			Log:           GinkgoLogr,
 			EventRecorder: eventRecorder,
+			CloudEvents:   &eventing.NoopEmitter{},
 		}
 
 		Expect(fakeK8sClient.Create(ctx, healthRecord)).To(Succeed())

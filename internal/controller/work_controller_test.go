@@ -26,6 +26,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/lib/hash"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,6 +58,7 @@ var _ = Describe("WorkReconciler", func() {
 			Log:           ctrl.Log.WithName("controllers").WithName("Work"),
 			Scheduler:     fakeScheduler,
 			EventRecorder: fakeEventRecorder,
+			CloudEvents:   &eventing.NoopEmitter{},
 		}
 
 		workName = types.NamespacedName{

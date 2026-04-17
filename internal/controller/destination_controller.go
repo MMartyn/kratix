@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,6 +59,7 @@ type DestinationReconciler struct {
 	Log             logr.Logger
 	Scheduler       *Scheduler
 	EventRecorder   record.EventRecorder
+	CloudEvents     eventing.CloudEventEmitter
 	RepositoryCache RepositoryCache
 }
 

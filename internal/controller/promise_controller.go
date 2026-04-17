@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -80,6 +81,7 @@ type PromiseReconciler struct {
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
+	CloudEvents               eventing.CloudEventEmitter
 	PromiseUpgrade            bool
 }
 
@@ -1140,6 +1142,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
+		dynamicController.CloudEvents = r.CloudEvents
 
 		if dynamicController.WatchStopped {
 			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
@@ -1168,6 +1171,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
+		CloudEvents:                 r.CloudEvents,
 		PromiseUpgrade:              r.PromiseUpgrade,
 	}
 

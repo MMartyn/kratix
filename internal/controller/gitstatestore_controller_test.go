@@ -34,6 +34,7 @@ import (
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/eventing"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 )
@@ -76,6 +77,7 @@ var _ = Describe("GitStateStore Controller", func() {
 			Scheme:          scheme.Scheme,
 			Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
 			EventRecorder:   eventRecorder,
+			CloudEvents:     &eventing.NoopEmitter{},
 			RepositoryCache: controller.NewRepositoryCache(),
 		}
 
