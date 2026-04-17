@@ -115,16 +115,20 @@ func (p *AsyncPublisher) buildEvent(obj client.Object, op Operation, cfg emitCon
 	}
 
 	gvk := obj.GetObjectKind().GroupVersionKind()
+	resource := map[string]any{
+		"apiVersion":      gvk.GroupVersion().String(),
+		"kind":            kind,
+		"namespace":       ns,
+		"name":            name,
+		"uid":             string(obj.GetUID()),
+		"resourceVersion": obj.GetResourceVersion(),
+	}
+	if labels := obj.GetLabels(); len(labels) > 0 {
+		resource["labels"] = labels
+	}
 	payload := map[string]any{
 		"operation": string(op),
-		"resource": map[string]any{
-			"apiVersion":      gvk.GroupVersion().String(),
-			"kind":            kind,
-			"namespace":       ns,
-			"name":            name,
-			"uid":             string(obj.GetUID()),
-			"resourceVersion": obj.GetResourceVersion(),
-		},
+		"resource":  resource,
 	}
 	if cfg.message != "" {
 		payload["message"] = cfg.message

@@ -46,6 +46,10 @@ var _ = Describe("AsyncPublisher", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "default",
 				Name:      "my-pod",
+				Labels: map[string]string{
+					"app": "test",
+					"env": "staging",
+				},
 			},
 		}
 		pod.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
@@ -58,6 +62,15 @@ var _ = Describe("AsyncPublisher", func() {
 		Expect(sent.Type()).To(Equal("io.kratix.pod.create.v1"))
 		Expect(sent.Source()).To(Equal("https://kratix.example/controller-manager"))
 		Expect(sent.Subject()).To(Equal("Pod/default/my-pod"))
+
+		var payload map[string]any
+		Expect(json.Unmarshal(sent.Data(), &payload)).To(Succeed())
+		resource, ok := payload["resource"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		labels, ok := resource["labels"].(map[string]any)
+		Expect(ok).To(BeTrue(), "resource should contain labels")
+		Expect(labels).To(HaveKeyWithValue("app", "test"))
+		Expect(labels).To(HaveKeyWithValue("env", "staging"))
 	})
 
 	It("includes status in the payload when WithStatus is used", func() {
@@ -91,6 +104,10 @@ var _ = Describe("AsyncPublisher", func() {
 		status, ok := payload["status"].(map[string]any)
 		Expect(ok).To(BeTrue(), "status should decode as a JSON object")
 		Expect(status).To(HaveKeyWithValue("phase", "Pending"))
+
+		resource, ok := payload["resource"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(resource).NotTo(HaveKey("labels"), "labels should be omitted when none exist")
 	})
 
 	It("drops events when the queue is full instead of blocking", func() {
