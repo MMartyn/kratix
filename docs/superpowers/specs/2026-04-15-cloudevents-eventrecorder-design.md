@@ -1,4 +1,4 @@
-# CloudEvents via EventRecorder Wrapper (Best-Effort Async)
+# CloudEvents – Best-Effort Async Emission
 
 ## Status
 
@@ -10,60 +10,129 @@ Kratix controllers already use Kubernetes `record.EventRecorder` extensively. We
 
 The initial explored option was durable at-least-once delivery using an outbox CRD. After trade-off discussion, the selected direction is best-effort delivery with async retries to keep the system simple and avoid additional etcd object lifecycle management.
 
+An earlier iteration proposed wrapping `record.EventRecorder` with a decorator that intercepted kube event calls and inferred operation types (create, edit, delete, status-change) from reason/message strings via a classifier. This was deprioritized because:
+
+- String-based classification is fragile and must track every reason string across all controllers.
+- Adding new operations or changing event messages could silently break classification.
+- The call site already knows what operation is being performed; that intent should be expressed directly rather than reverse-engineered from free-form text.
+
+The selected approach uses an explicit, typed eventing API that controllers call alongside (not instead of) the existing kube event recorder. This makes the operation unambiguous at the call site and avoids any classifier.
+
+## SDK Dependency
+
+CloudEvents construction and HTTP protocol binding will use the **CloudEvents Go SDK** (`github.com/cloudevents/sdk-go/v2`). This gives us:
+
+- Spec-compliant event construction (`cloudevents.NewEvent()`).
+- HTTP protocol binding with built-in retry/backoff via `cloudevents/sdk-go/v2/protocol/http` and `cloudevents/sdk-go/v2/context`.
+- Content-type negotiation (structured vs. binary mode).
+- Broad community adoption and maintained compatibility with the CloudEvents spec.
+
+We pin to the `v2` module path and track the latest stable release.
+
 ## Goals
 
 - Emit CloudEvents for key operations (`create`, `edit`, `delete`, `status-change`).
 - Include status payload for `status-change` events.
 - Keep reconciler behavior unchanged and non-blocking.
-- Preserve current Kubernetes event emission.
+- Preserve current Kubernetes event emission (unchanged).
 - Keep changes self-contained and easy to review.
+- Express operation intent explicitly at the call site — no string-based inference.
 
 ## Non-Goals
 
 - Durable at-least-once guarantees across process restarts.
 - Outbox CRD, dead-letter queues, or replay pipelines.
 - Exactly-once delivery or strict in-order delivery.
+- Wrapping or replacing the Kubernetes `record.EventRecorder` interface.
 
 ## Selected Architecture
 
-### 1) EventRecorder Decorator
+### 1) Explicit Eventing API
 
-Add `CloudEventRecorder` implementing `record.EventRecorder`:
+Add a `CloudEventEmitter` with typed methods for each operation:
 
-- Wrap an existing kube recorder (`mgr.GetEventRecorderFor(...)`).
-- Forward all calls to kube recorder unchanged.
-- Build CloudEvent payloads from recorder calls and enqueue async send jobs.
-- Never return errors to reconcile loops.
+```go
+type Operation string
+
+const (
+    OperationCreate       Operation = "create"
+    OperationEdit         Operation = "edit"
+    OperationDelete       Operation = "delete"
+    OperationStatusChange Operation = "status-change"
+)
+
+type CloudEventEmitter interface {
+    Emit(obj client.Object, op Operation, opts ...EmitOption)
+}
+```
+
+`EmitOption` allows attaching optional data without polluting the core signature:
+
+```go
+type EmitOption func(*emitConfig)
+
+func WithStatus(status any) EmitOption { ... }
+func WithMessage(msg string) EmitOption { ... }
+```
+
+Controllers call `Emit` directly at the point where the operation is known:
+
+```go
+r.CloudEvents.Emit(promise, eventing.OperationCreate)
+r.CloudEvents.Emit(rr, eventing.OperationStatusChange, eventing.WithStatus(rr.Status))
+```
+
+This means:
+- The operation is a typed constant, not a string to be classified.
+- Kubernetes event recording continues unchanged via the existing `record.EventRecorder`.
+- CloudEvent emission is an additive call, not a side-effect of kube event recording.
 
 ### 2) Async Publisher with Retries
 
 Add shared `AsyncPublisher`:
 
-- In-memory buffered queue.
-- Background worker goroutines send events using `cloudevents/sdk-go`.
-- SDK retry/backoff configured per publisher settings.
-- On queue full or exhausted retries: log and increment metrics, then drop event (best effort).
+- In-memory buffered channel (`queueSize` capacity).
+- `workerCount` background goroutines drain the channel.
+- Each worker creates a send context with `cecontext.WithRetryParams()` and calls `ceClient.Send(ctx, event)`. The SDK's HTTP protocol handles the retry loop (`doWithRetry`) and backoff internally based on the `RetryParams` in the context.
+- On queue full: drop event, log, increment metrics (best effort).
+- On SDK retries exhausted (send returns non-ACK `RetriesResult`): drop event, log, increment metrics.
 
 ### 3) No Sink Means No-Op
 
 If global sink is not configured:
 
-- Use `NoopPublisher`.
+- Use `NoopEmitter` (implements `CloudEventEmitter` as no-ops).
 - Keep Kubernetes event recording normal.
 - Emit one startup log indicating CloudEvents are disabled.
 - No periodic reminders.
 
 ### 4) Global Configuration
 
-Use a single global sink URL and sender options:
+Configuration is split into two groups: CloudEvents SDK settings (mapped directly to SDK types) and our own async publisher settings.
 
-- `eventing.cloudEvents.sink`
-- `eventing.cloudEvents.source`
-- `eventing.cloudEvents.queueSize`
-- `eventing.cloudEvents.workerCount`
-- `eventing.cloudEvents.retry.maxTries`
-- `eventing.cloudEvents.retry.strategy`
-- `eventing.cloudEvents.retry.period`
+#### SDK-mapped settings
+
+These map 1:1 to the CloudEvents Go SDK's `RetryParams` struct and HTTP protocol options:
+
+- `eventing.cloudEvents.sink` — Target URL passed to `cehttp.WithTarget()`. Required to enable emission.
+- `eventing.cloudEvents.source` — CloudEvent `source` attribute (e.g. `"https://kratix.io/controller-manager"`).
+- `eventing.cloudEvents.retry.maxTries` — Maps to `RetryParams.MaxTries`. Maximum number of retry attempts before giving up (default: `3`).
+- `eventing.cloudEvents.retry.strategy` — Maps to `RetryParams.Strategy`. One of `"none"`, `"constant"`, `"linear"`, `"exponential"` (default: `"constant"`). These correspond directly to the SDK's `BackoffStrategy` constants.
+- `eventing.cloudEvents.retry.period` — Maps to `RetryParams.Period`. Base delay duration between retries (default: `"1s"`). Interpretation depends on strategy:
+  - `constant`: fixed delay between retries
+  - `linear`: delay = period × retry count
+  - `exponential`: delay = period × 2^(retry count)
+
+The retry parameters are applied via `cecontext.WithRetryParams()` on the context passed to `client.Send()`. The SDK's HTTP protocol handles the retry loop internally in its `doWithRetry` path.
+
+The SDK's default retriable HTTP status codes (404, 413, 425, 429, 502, 503, 504) are used as-is initially. A custom `IsRetriableFunc` can be added later if needed.
+
+#### Publisher settings (our own)
+
+These control the in-memory async queue that sits between the `Emit` call and the SDK `client.Send`:
+
+- `eventing.cloudEvents.queueSize` — Buffered channel capacity for pending events (default: `1024`).
+- `eventing.cloudEvents.workerCount` — Number of background goroutines draining the queue and calling `client.Send` (default: `2`).
 
 Defaults should be conservative and safe for controller-manager memory/CPU.
 
@@ -95,10 +164,8 @@ Examples:
 
 Common shape:
 
-- `operation`
-- `controller`
-- `reason`
-- `message`
+- `operation` — the typed operation constant (e.g. `"create"`, `"status-change"`)
+- `message` — optional human-readable context (via `WithMessage`)
 - `resource`:
   - `apiVersion`
   - `kind`
@@ -106,57 +173,52 @@ Common shape:
   - `name`
   - `uid`
   - `resourceVersion`
-- `status` (only for `status-change`)
+- `status` (only for `status-change`, via `WithStatus`)
 
 For `status-change`, include full status payload initially for correctness and downstream flexibility.
 
-## Operation Classification
+## Operation Specification
 
-Primary mapping comes from recorder reason/message patterns to operation:
+Operations are explicit typed constants (`OperationCreate`, `OperationEdit`, `OperationDelete`, `OperationStatusChange`) passed by the controller at the call site. There is no classifier or string matching — the developer adding the `Emit` call selects the correct operation when writing the code.
 
-- explicit create reasons -> `create`
-- explicit delete reasons -> `delete`
-- condition or health-related reasons -> `status-change`
-- otherwise -> `edit`
-
-Unknown patterns default to `edit`.
-
-If coverage gaps appear, add minimal explicit event emits in selected controller paths while keeping wrapper as primary mechanism.
+This means:
+- New operations are added by defining a new `Operation` constant and calling `Emit` with it.
+- No mapping table or pattern list needs to be maintained.
+- The set of emitted operations is discoverable by searching for `Emit(` calls in the codebase.
 
 ## Data Flow
 
-1. Controller calls `EventRecorder.Event*`.
-2. Decorator forwards to Kubernetes recorder.
-3. Decorator maps call + object metadata to CloudEvent envelope.
-4. Envelope is enqueued to async publisher.
-5. Worker sends with SDK retries/backoff.
+1. Controller performs an operation and calls `r.EventRecorder.Event*(...)` as before (unchanged).
+2. Controller calls `r.CloudEvents.Emit(obj, operation, ...)` at the same point.
+3. Emitter builds a CloudEvent envelope from the object metadata, operation constant, and any options.
+4. Envelope is enqueued to the async publisher's in-memory queue.
+5. Worker sends via `cloudevents/sdk-go/v2` HTTP protocol binding with retry/backoff.
 6. Success/failure/drop outcomes are logged and captured in metrics.
 
-Reconcile loop is never blocked on CloudEvents send.
+Reconcile loop is never blocked on CloudEvents send. The `Emit` call enqueues and returns immediately.
 
 ## Failure Handling
 
 - Queue full: drop event, `dropped_queue_full++`, rate-limited warning.
 - Send error with retries exhausted: drop event, `send_failed++`, structured error log.
-- Invalid sink config: fail closed to `NoopPublisher` plus startup warning.
+- Invalid sink config: fail closed to `NoopEmitter` plus startup warning.
 - Context shutdown: attempt bounded drain; do not block shutdown indefinitely.
 
 ## Testing Strategy
 
 ### Unit
 
-- Recorder forwards all kube events.
-- Mapper produces expected CloudEvent attributes and payloads.
-- Classifier maps reasons to correct operations.
+- Emitter builds correct CloudEvent attributes for each operation type.
+- Emitter includes status payload only when `WithStatus` option is provided.
 - Async queue behavior (enqueue, full queue drop, worker send calls).
 - Retry behavior invocation and terminal failure metrics.
-- No sink -> `NoopPublisher` path.
+- No sink -> `NoopEmitter` path.
 
 ### Integration
 
-- Controller wiring uses wrapped recorder for major controllers.
-- Fake sink receives CloudEvents while Kubernetes events still emitted.
-- CloudEvents disabled mode generates no outbound sends.
+- Controllers call `Emit` at key points; fake sink receives correct CloudEvents.
+- Kubernetes events are still emitted via existing `record.EventRecorder` (unchanged).
+- CloudEvents disabled mode (`NoopEmitter`) generates no outbound sends.
 
 ## Observability
 
@@ -182,22 +244,22 @@ Logs:
 
 ## Rollout Plan
 
-1. Add eventing package (`Recorder`, `Mapper`, `Publisher`, `NoopPublisher`).
-2. Wire wrapped recorders in `cmd/main.go`.
-3. Add initial classifier for target resources (`Work`, `WorkPlacement`, `Promise`, `ResourceRequest`).
-4. Add metrics and structured logging.
-5. Add tests and docs.
-6. Optional follow-up: tighten operation mapping and add explicit emits for uncovered transitions.
+1. Add `github.com/cloudevents/sdk-go/v2` dependency.
+2. Add eventing package (`CloudEventEmitter`, `AsyncPublisher`, `NoopEmitter`, `EmitOption` helpers).
+3. Wire emitter creation in `cmd/main.go` (sink configured → real emitter; no sink → `NoopEmitter`).
+4. Add `Emit` calls in target controllers (`Promise`, `ResourceRequest`, `Work`, `WorkPlacement`, `HealthRecord`).
+5. Add metrics and structured logging.
+6. Add tests and docs.
 
 ## Alternatives Considered
 
-- Durable outbox CRD + dispatcher + GC (stronger guarantees, higher complexity).
-- Direct publisher calls in each controller (more explicit, broader code churn).
-- In-memory direct send without worker queue (too coupled to reconcile latency).
+- **Durable outbox CRD + dispatcher + GC**: Stronger guarantees but higher complexity and etcd churn.
+- **EventRecorder decorator with string classifier**: Wraps `record.EventRecorder` and infers operation from reason/message strings. Deprioritized because classification is fragile, hard to extend, and the call site already knows the operation.
+- **In-memory direct send without worker queue**: Too coupled to reconcile latency.
 
 ## Why This Choice
 
-This design minimizes implementation and operational complexity while preserving existing controller behavior. It keeps CloudEvents logic centralized and reviewable, aligns with async retry patterns used in comparable systems, and leaves a clear upgrade path to a durable outbox model if stricter guarantees are needed later.
+This design minimizes implementation and operational complexity while preserving existing controller behavior. Using an explicit typed API rather than a recorder wrapper makes operations unambiguous, avoids fragile string classification, and keeps CloudEvent emission clearly visible in code review. The async publisher with best-effort delivery aligns with comparable systems and leaves a clear upgrade path to a durable outbox model if stricter guarantees are needed later.
 
 ## References
 
