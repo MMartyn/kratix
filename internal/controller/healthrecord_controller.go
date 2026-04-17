@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -208,6 +209,8 @@ func (r *HealthRecordReconciler) fireEvent(
 	} else {
 		r.EventRecorder.Eventf(resReq, "Normal", "HealthRecord", "Health state is %s", healthRecord.Data.State)
 	}
+	r.CloudEvents.Emit(resReq, eventing.OperationStatusChange,
+		eventing.WithMessage(fmt.Sprintf("Health state is %s", healthRecord.Data.State)))
 }
 
 func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructured.Unstructured) string {

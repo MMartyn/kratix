@@ -148,13 +148,15 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
 		logging.Warn(logger, "no available destinations for some workload groups; trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
+		waitDestMsg := fmt.Sprintf("waiting for destination for workload group: [%s]",
+			strings.Join(unscheduledWorkloadGroupIDs, ","))
 		r.EventRecorder.Eventf(
 			work,
 			v1.EventTypeNormal,
 			"WaitingDestination",
-			"waiting for destination for workload group: [%s]",
-			strings.Join(unscheduledWorkloadGroupIDs, ","),
+			waitDestMsg,
 		)
+		r.CloudEvents.Emit(work, eventing.OperationStatusChange, eventing.WithMessage(waitDestMsg))
 		return slowRequeue, nil
 	}
 
@@ -198,7 +200,9 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		}
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
 			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
-			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
+			wpFailingMsg := fmt.Sprintf("Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
+			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", wpFailingMsg)
+			r.CloudEvents.Emit(work, eventing.OperationStatusChange, eventing.WithMessage(wpFailingMsg))
 			return r.Client.Status().Update(ctx, work)
 		}
 	}

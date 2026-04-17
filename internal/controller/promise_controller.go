@@ -220,6 +220,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 			msg := "Promise no longer available: Requirements have changed"
 			r.EventRecorder.Eventf(
 				promise, "Warning", "Unavailable", msg)
+			r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage(msg))
 			logging.Info(r.Log, msg)
 		}
 
@@ -399,7 +400,9 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	}
 
 	if op == controllerutil.OperationResultCreated {
-		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
+		revisionMsg := fmt.Sprintf("Revision %s created", revision.GetName())
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", revisionMsg)
+		r.CloudEvents.Emit(promise, eventing.OperationCreate, eventing.WithMessage(revisionMsg))
 	}
 	return ctrl.Result{}, nil
 }
@@ -532,6 +535,7 @@ func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise)
 			updated = true
 			r.EventRecorder.Event(promise, v1.EventTypeNormal, "ReconcileSucceeded",
 				"Successfully reconciled")
+			r.CloudEvents.Emit(promise, eventing.OperationEdit, eventing.WithMessage("Successfully reconciled"))
 		}
 	}
 	return updated
@@ -601,6 +605,8 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 			updateConditionOnPromise(promise, promiseWorksSucceededFailedCondition(failed))
 			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksFailing",
 				"Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))
+			r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage(
+				fmt.Sprintf("Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))))
 			return true
 		}
 		return false
@@ -617,6 +623,8 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 			updateConditionOnPromise(promise, promiseWorksSucceededMisplacedCondition(misplaced))
 			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksMisplaced",
 				"Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ","))
+			r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage(
+				fmt.Sprintf("Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ","))))
 			return true
 		}
 		return false
@@ -625,6 +633,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 		updateConditionOnPromise(promise, promiseWorksSucceededStatusCondition())
 		r.EventRecorder.Event(promise, v1.EventTypeNormal, "WorksSucceeded",
 			"All works associated with this promise are ready")
+		r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage("All works associated with this promise are ready"))
 		return true
 	}
 	return false
@@ -855,6 +864,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 	if condition.Status == metav1.ConditionTrue && len(promise.Spec.RequiredPromises) > 0 {
 		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
 			"RequirementsFulfilled", "All required promises are available")
+		r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage("All required promises are available"))
 	}
 
 	return condition, requirements
@@ -871,6 +881,7 @@ func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, pro
 	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
 
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
+	r.CloudEvents.Emit(promise, eventing.OperationStatusChange, eventing.WithMessage("Promise is available"))
 	return r.updatePromiseStatus(ctx, promise)
 }
 

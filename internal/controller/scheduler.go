@@ -131,9 +131,12 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Reason:  "Misplaced",
 			Message: "Misplaced",
 		}
-		s.EventRecorder.Eventf(w, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
+		misplacedMsg := fmt.Sprintf(
 			"Target destination no longer matches destinationSelectors for workloadGroups: [%s] ",
 			strings.Join(misplacedWorkloadGroupIDs, ","))
+		s.EventRecorder.Eventf(w, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
+			misplacedMsg)
+		s.CloudEvents.Emit(w, eventing.OperationStatusChange, eventing.WithMessage(strings.TrimSpace(misplacedMsg)))
 	} else { // all works are scheduled and none is misplaced
 		readyCond = metav1.Condition{
 			Type:    "Ready",
@@ -149,6 +152,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		}
 		s.EventRecorder.Eventf(w, corev1.EventTypeNormal, "AllWorkplacementsScheduled",
 			"All workplacements scheduled successfully")
+		s.CloudEvents.Emit(w, eventing.OperationStatusChange, eventing.WithMessage("All workplacements scheduled successfully"))
 	}
 
 	if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
@@ -410,8 +414,10 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 			return false, err
 		}
 		logging.Info(s.Log, "workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
+		wpReconciledMsg := fmt.Sprintf("workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
 		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "WorkplacementReconciled",
-			"workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
+			wpReconciledMsg)
+		s.CloudEvents.Emit(work, eventing.OperationEdit, eventing.WithMessage(wpReconciledMsg))
 
 		outcome := telemetry.WorkPlacementOutcomeScheduled
 		if misscheduled {
@@ -448,8 +454,12 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 			Message: "Misplaced",
 		})
 		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
+		mismatchMsg := fmt.Sprintf(
+			"labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced",
+			updatedwp.Spec.TargetDestinationName)
 		s.EventRecorder.Eventf(updatedwp, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
-			"labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
+			mismatchMsg)
+		s.CloudEvents.Emit(updatedwp, eventing.OperationStatusChange, eventing.WithMessage(mismatchMsg))
 		if scheduleUpdated || readyUpdated {
 			return s.Client.Status().Update(ctx, updatedwp)
 		}

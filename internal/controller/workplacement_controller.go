@@ -78,6 +78,7 @@ type workPlacementReconcileContext struct {
 	trace         *reconcileTrace
 	client        client.Client
 	eventRecorder record.EventRecorder
+	cloudEvents   eventing.CloudEventEmitter
 
 	workPlacement   *v1alpha1.WorkPlacement
 	destination     *v1alpha1.Destination
@@ -141,6 +142,7 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 		logger:          logger.WithValues("generation", workPlacement.GetGeneration()),
 		client:          r.Client,
 		eventRecorder:   r.EventRecorder,
+		cloudEvents:     r.CloudEvents,
 		workPlacement:   workPlacement,
 		destination:     dest,
 		repositoryCache: r.RepositoryCache,
@@ -255,19 +257,22 @@ func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, e
 
 func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID string, err error) {
 	if err != nil {
-		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeWarning, reason,
-			fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error()))
+		failMsg := fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error())
+		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeWarning, reason, failMsg)
+		w.cloudEvents.Emit(w.workPlacement, eventing.OperationStatusChange, eventing.WithMessage(failMsg))
 		return
 	}
 
 	if versionID != "" {
-		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
-			"successfully written to Destination: %s with versionID: %s", w.workPlacement.Spec.TargetDestinationName, versionID)
+		okMsg := fmt.Sprintf("successfully written to Destination: %s with versionID: %s", w.workPlacement.Spec.TargetDestinationName, versionID)
+		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason, okMsg)
+		w.cloudEvents.Emit(w.workPlacement, eventing.OperationEdit, eventing.WithMessage(okMsg))
 		return
 	}
 
-	w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
-		"successfully written to Destination: %s", w.workPlacement.Spec.TargetDestinationName)
+	okMsg := fmt.Sprintf("successfully written to Destination: %s", w.workPlacement.Spec.TargetDestinationName)
+	w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason, okMsg)
+	w.cloudEvents.Emit(w.workPlacement, eventing.OperationEdit, eventing.WithMessage(okMsg))
 }
 
 // SetupWithManager sets up the controller with the Manager.

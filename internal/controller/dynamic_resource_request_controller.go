@@ -184,8 +184,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		logging.Debug(baseLogger,
 			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
-			fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
+		reconcileStartedMsg := fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name)
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted", reconcileStartedMsg)
+		r.CloudEvents.Emit(rr, eventing.OperationEdit, eventing.WithMessage(reconcileStartedMsg))
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
@@ -365,11 +366,12 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	)
 
 	if op == "created" {
-		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated",
-			fmt.Sprintf("Binding %s created for promise %s version %s",
-				resourceBinding.GetName(),
-				promise.GetName(),
-				resourceBinding.Spec.Version))
+		bindingMsg := fmt.Sprintf("Binding %s created for promise %s version %s",
+			resourceBinding.GetName(),
+			promise.GetName(),
+			resourceBinding.Spec.Version)
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated", bindingMsg)
+		r.CloudEvents.Emit(rr, eventing.OperationCreate, eventing.WithMessage(bindingMsg))
 	}
 
 	return nil
@@ -488,8 +490,9 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing",
-				fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
+			worksFailingMsg := fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ","))
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing", worksFailingMsg)
+			r.CloudEvents.Emit(rr, eventing.OperationStatusChange, eventing.WithMessage(worksFailingMsg))
 			return true
 		}
 		return false
@@ -504,8 +507,9 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	if len(misplaced) > 0 {
 		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
-				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
+			worksMisplacedMsg := fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ","))
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced", worksMisplacedMsg)
+			r.CloudEvents.Emit(rr, eventing.OperationStatusChange, eventing.WithMessage(worksMisplacedMsg))
 			return true
 		}
 		return false
@@ -514,6 +518,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
 		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
 			"All works associated with this resource are ready")
+		r.CloudEvents.Emit(rr, eventing.OperationStatusChange, eventing.WithMessage("All works associated with this resource are ready"))
 		return true
 	}
 	return false
@@ -554,6 +559,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 			updated = true
 			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
 				"Successfully reconciled")
+			r.CloudEvents.Emit(rr, eventing.OperationEdit, eventing.WithMessage("Successfully reconciled"))
 		}
 	}
 	return updated
